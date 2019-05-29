@@ -1,71 +1,58 @@
-import { Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Injectable, Injector } from '@angular/core';
 
-import { Observable, throwError } from 'rxjs';
-import { map, catchError, flatMap } from "rxjs/operators";
+import { Observable } from "rxjs";
+import { flatMap, catchError, map } from "rxjs/operators";
 
+import { BaseResourceService } from "../../../shared/services/base-resource.service";
+import { CategoryService } from "../../categories/shared/category.service";
 import { Entry } from "./entry.model";
+
+import * as moment from "moment"
+
 
 @Injectable({
   providedIn: 'root'
 })
-export class EntryService {
-  private apiPath: string = "api/entries";
+export class EntryService extends BaseResourceService<Entry> {
 
-  constructor( private httpc: HttpClient) { }
+  constructor(protected injector: Injector, private categoryService: CategoryService) { 
+    super("api/entries", injector, Entry.fromJson);
+  }
 
-  getAll(): Observable<Entry[]>{
-    return this.httpc.get(this.apiPath).pipe(
-      catchError(this.handleError),
-      map(this.jsonDataToCategories)
+
+  create(entry: Entry): Observable<Entry> {
+    return this.setCategoryAndSendToServer(entry, super.create.bind(this));
+  }
+
+  update(entry: Entry): Observable<Entry> {
+    return this.setCategoryAndSendToServer(entry, super.update.bind(this))
+  }
+
+  getByMonthAndYear(month: number, year: number): Observable<Entry[]> {
+    return this.getAll().pipe(
+      map(entries => this.filterByMonthAndYear(entries, month, year))
     )
   }
 
-  getById(id: number): Observable<Entry> {
-    const url = `${this.apiPath}/${id}`;
-    return this.httpc.get(url).pipe(
-      catchError(this.handleError),
-      map(this.jsonDataToEntry)
-    )
+
+  private setCategoryAndSendToServer(entry: Entry, sendFn: any): Observable<Entry>{
+    return this.categoryService.getById(entry.categoryId).pipe(
+      flatMap(category => {
+        entry.category = category;
+        return sendFn(entry)
+      }),
+      catchError(this.handleError)
+    );
   }
 
-  create( entry: Entry): Observable<Entry>{
-    return this.httpc.post(this.apiPath, entry).pipe(
-      catchError(this.handleError),
-      map(this.jsonDataToEntry)
-    )
+  private filterByMonthAndYear(entries: Entry[], month: number, year: number) {
+    return entries.filter(entry => {
+      const entryDate = moment(entry.date, "DD/MM/YYYY");
+      const monthMatches = entryDate.month() + 1 == month;
+      const yearMatches = entryDate.year() == year;
+
+      if(monthMatches && yearMatches) return entry;
+    })
   }
 
-  update( entry: Entry): Observable<Entry>{
-    const url = `${this.apiPath}/${entry.id}`;
-    return this.httpc.put(url, entry).pipe(
-      catchError(this.handleError),
-      map(() => entry)
-    )
-  }
-
-  delete(id: number): Observable<any>{
-    const url = `${this.apiPath}/${id}`;
-    return this.httpc.delete(url).pipe(
-      catchError(this.handleError),
-      map(() => null)
-    )
-  }
-
-  //PRIVATE METHODS
-
-  private jsonDataToCategories(jsonData: any[]):Entry[]{
-    const entries: Entry[] = [];
-    jsonData.forEach( element => entries.push(element as Entry));
-    return entries;
-  }
-
-  private jsonDataToEntry(jsonData: any): Entry{
-    return jsonData as Entry;
-  }
-
-  private handleError(error: any): Observable<any>{
-    console.log("ERRO NA REQUISIÇÃO => "+ error);
-    return throwError(error);
-  }
 }
